@@ -1,7 +1,7 @@
 {
   "name": "relay-contract-refresher-license-server",
-  "version": "1.4.0",
-  "description": "License API and admin panel for Relay Contract Refresher",
+  "version": "1.5.0",
+  "description": "License API, admin panel and update checker for Relay Contract Refresher",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

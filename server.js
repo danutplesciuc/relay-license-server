@@ -6,6 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const LICENSE_FILE = path.join(__dirname, 'licenses.json');
+const VERSION_FILE = path.join(__dirname, 'version.json');
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'CHANGE_ME_RELAY_2026').trim();
 
 app.use(cors());
@@ -24,6 +25,15 @@ function loadLicenses() {
 
 function saveLicenses(licenses) {
   fs.writeFileSync(LICENSE_FILE, JSON.stringify(licenses, null, 2));
+}
+
+function loadVersionInfo() {
+  try {
+    const raw = fs.readFileSync(VERSION_FILE, 'utf8');
+    return JSON.parse(raw);
+  } catch (error) {
+    return { version: '1.5.0', downloadUrl: '', notes: 'Version file not found.' };
+  }
 }
 
 function clean(value) {
@@ -74,9 +84,10 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '1.4.2',
+    version: '1.5.0',
     admin: '/admin',
-    validate: '/validate-license'
+    validate: '/validate-license',
+    versionCheck: '/version'
   });
 });
 
@@ -84,10 +95,21 @@ app.get('/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
 
+app.get('/version', (req, res) => {
+  const info = loadVersionInfo();
+  res.json({
+    ok: true,
+    product: 'relay-contract-refresher',
+    version: info.version || '1.5.0',
+    downloadUrl: info.downloadUrl || info.download || '',
+    notes: info.notes || ''
+  });
+});
+
 app.get('/admin/env-check', (req, res) => {
   res.json({
     ok: true,
-    version: '1.4.2',
+    version: '1.5.0',
     adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
     adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
   });
@@ -278,5 +300,5 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v1.4.2 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v1.5.0 running on port ${PORT}`);
 });
