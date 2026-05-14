@@ -1,304 +1,248 @@
-const express = require('express');
-const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
+const express = require("express");
+const fs = require("fs");
+const cors = require("cors");
+const Stripe = require("stripe");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const LICENSE_FILE = path.join(__dirname, 'licenses.json');
-const VERSION_FILE = path.join(__dirname, 'version.json');
-const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'CHANGE_ME_RELAY_2026').trim();
+
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json());
+
+const LICENSE_FILE = "./licenses.json";
 
 function loadLicenses() {
-  try {
-    const raw = fs.readFileSync(LICENSE_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.error('Could not read licenses.json:', error.message);
-    return [];
+  if (!fs.existsSync(LICENSE_FILE)) {
+    fs.writeFileSync(LICENSE_FILE, "[]");
   }
+
+  return JSON.parse(fs.readFileSync(LICENSE_FILE));
 }
 
-function saveLicenses(licenses) {
-  fs.writeFileSync(LICENSE_FILE, JSON.stringify(licenses, null, 2));
+function saveLicenses(data) {
+  fs.writeFileSync(LICENSE_FILE, JSON.stringify(data, null, 2));
 }
 
-function loadVersionInfo() {
-  try {
-    const raw = fs.readFileSync(VERSION_FILE, 'utf8');
-    return JSON.parse(raw);
-  } catch (error) {
-    return { version: '1.5.0', downloadUrl: '', notes: 'Version file not found.' };
-  }
-}
+app.get("/", (req, res) => {
+  res.send("Relay Contract Refresher License Server v1.5");
+});
 
-function clean(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function cleanKey(value) {
-  return String(value || '').trim().toUpperCase();
-}
-
-function makeLicenseKey() {
-  const part = () => Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `RCR-${part()}-${part()}-${new Date().getFullYear()}`;
-}
-
-function requireAdmin(req, res, next) {
-  const provided = req.headers['x-admin-password'] || req.query.password;
-  if (!provided || String(provided).trim() !== ADMIN_PASSWORD) {
-    return res.status(401).json({ ok: false, error: 'unauthorised' });
-  }
-  next();
-}
-
-function normaliseLicense(input) {
-  const email = clean(input.email);
-  const license_key = cleanKey(input.license_key || input.licenseKey || makeLicenseKey());
-  const product = clean(input.product || 'relay-contract-refresher');
-  const status = clean(input.status || 'active');
-  const plan = clean(input.plan || 'standard');
-  const maxDevices = Number(input.maxDevices || input.max_devices || 1);
-  const expiresAt = input.expiresAt || input.expires_at || new Date(Date.now() + 30 * 86400000).toISOString();
-
-  if (!email) throw new Error('email_required');
-  if (!license_key) throw new Error('license_key_required');
-
-  return {
-    email,
-    license_key,
-    product,
-    status,
-    plan,
-    expiresAt: new Date(expiresAt).toISOString(),
-    maxDevices: Math.max(1, maxDevices)
-  };
-}
-
-app.get('/', (req, res) => {
+app.get("/admin/env-check", (req, res) => {
   res.json({
     ok: true,
-    product: 'Relay Contract Refresher License Server',
-    version: '1.5.0',
-    admin: '/admin',
-    validate: '/validate-license',
-    versionCheck: '/version'
+    version: "1.5.0",
+    stripeLoaded: !!process.env.STRIPE_SECRET_KEY,
+    webhookLoaded: !!process.env.STRIPE_WEBHOOK_SECRET,
+    adminLoaded: !!process.env.ADMIN_PASSWORD,
   });
 });
 
-app.get('/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
-});
-
-app.get('/version', (req, res) => {
-  const info = loadVersionInfo();
-  res.json({
-    ok: true,
-    product: 'relay-contract-refresher',
-    version: info.version || '1.5.0',
-    downloadUrl: info.downloadUrl || info.download || '',
-    notes: info.notes || ''
-  });
-});
-
-app.get('/admin/env-check', (req, res) => {
-  res.json({
-    ok: true,
-    version: '1.5.0',
-    adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
-    adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
-  });
-});
-
-
-app.post('/validate-license', (req, res) => {
-  const email = clean(req.body.email);
-  const licenseKey = cleanKey(req.body.license_key);
-  const product = clean(req.body.product || 'relay-contract-refresher');
-
-  if (!email || !licenseKey) {
-    return res.json({ ok: true, active: false, reason: 'missing_email_or_license' });
-  }
-
-  const licenses = loadLicenses();
-  const license = licenses.find(item =>
-    clean(item.email) === email &&
-    cleanKey(item.license_key) === licenseKey &&
-    clean(item.product) === product
-  );
-
-  if (!license) {
-    return res.json({ ok: true, active: false, reason: 'not_found' });
-  }
-
-  if (license.status !== 'active') {
-    return res.json({ ok: true, active: false, reason: license.status || 'inactive' });
-  }
-
-  const expires = new Date(license.expiresAt).getTime();
-  if (!expires || expires <= Date.now()) {
-    return res.json({ ok: true, active: false, reason: 'expired', expiresAt: license.expiresAt });
-  }
-
-  return res.json({
-    ok: true,
-    active: true,
-    expiresAt: license.expiresAt,
-    plan: license.plan || 'standard',
-    maxDevices: license.maxDevices || 1
-  });
-});
-
-app.get('/admin', (req, res) => {
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Relay Tools Admin</title>
-  <style>
-    body{margin:0;background:#0b1220;color:#e5e7eb;font-family:Arial,sans-serif}.wrap{max-width:1100px;margin:0 auto;padding:24px}h1{margin:0 0 6px;font-size:28px}.sub{color:#94a3b8;margin-bottom:22px}.card{background:#111827;border:1px solid #243244;border-radius:18px;padding:18px;margin-bottom:18px;box-shadow:0 15px 45px rgba(0,0,0,.25)}input,select,button{border:0;border-radius:10px;padding:11px;font-size:14px}input,select{background:#1f2937;color:white;border:1px solid #334155}button{background:#22c55e;color:#052e16;font-weight:900;cursor:pointer}button.danger{background:#ef4444;color:white}button.warn{background:#f59e0b;color:#111827}button.copy{background:#64748b;color:white}.grid{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}.grid label{display:flex;flex-direction:column;gap:6px;color:#cbd5e1;font-size:12px}.actions{display:flex;gap:8px;flex-wrap:wrap}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:11px;border-bottom:1px solid #243244;vertical-align:middle}th{color:#93c5fd}.pill{display:inline-block;padding:4px 8px;border-radius:999px;font-weight:900;font-size:12px}.active{background:#14532d;color:#86efac}.inactive{background:#451a1a;color:#fecaca}.muted{color:#94a3b8}.msg{min-height:20px;color:#86efac;font-weight:700}.hide{display:none}@media(max-width:900px){.grid{grid-template-columns:1fr 1fr}table{font-size:12px}.wrap{padding:14px}}
-  </style>
-</head>
-<body>
-<div class="wrap">
-  <div class="top">
-    <div><h1>Relay Tools Admin</h1><div class="sub">Relay Contract Refresher license manager</div></div>
-    <div class="actions"><button class="copy" id="refreshBtn">Refresh</button><button class="danger" id="logoutBtn">Logout</button></div>
-  </div>
-  <div id="loginBox" class="card">
-    <h2>Admin login</h2>
-    <p class="muted">Enter your admin password from Render environment variable ADMIN_PASSWORD.</p>
-    <input id="password" type="password" placeholder="Admin password" style="width:280px;max-width:100%">
-    <button id="loginBtn">Login</button>
-    <div id="loginMsg" class="msg"></div>
-  </div>
-  <div id="appBox" class="hide">
-    <div class="card">
-      <h2>Add or update license</h2>
-      <div class="grid">
-        <label>Email<input id="email" placeholder="client@email.com"></label>
-        <label>License Key<input id="license_key" placeholder="auto if empty"></label>
-        <label>Plan<select id="plan"><option>starter</option><option>pro</option><option>fleet</option><option>owner</option><option>demo</option></select></label>
-        <label>Status<select id="status"><option>active</option><option>inactive</option><option>cancelled</option></select></label>
-        <label>Expires<input id="expiresAt" type="date"></label>
-        <label>Max devices<input id="maxDevices" type="number" value="1" min="1"></label>
-      </div>
-      <div class="actions" style="margin-top:12px"><button id="saveBtn">Save license</button><button class="copy" id="clearBtn">Clear form</button><button class="warn" id="genBtn">Generate key</button></div>
-      <div id="msg" class="msg"></div>
-    </div>
-    <div class="card">
-      <h2>Licenses</h2>
-      <div style="overflow:auto"><table><thead><tr><th>Email</th><th>Key</th><th>Plan</th><th>Status</th><th>Expires</th><th>Devices</th><th>Actions</th></tr></thead><tbody id="rows"></tbody></table></div>
-    </div>
-  </div>
-</div>
-<script>
-(function(){
-  var adminPassword = localStorage.getItem('rcr_admin_password') || '';
-  var currentLicenses = [];
-  function byId(id){ return document.getElementById(id); }
-  function headers(){ return {'Content-Type':'application/json','x-admin-password':adminPassword}; }
-  function showMsg(text,bad){ var el=byId('msg'); if(!el) return; el.style.color=bad?'#fecaca':'#86efac'; el.textContent=text; setTimeout(function(){el.textContent='';},3500); }
-  function showLoginMsg(text){ var el=byId('loginMsg'); el.style.color='#fecaca'; el.textContent=text; }
-  function defaultDate(){ var d=new Date(); d.setMonth(d.getMonth()+1); byId('expiresAt').value=d.toISOString().slice(0,10); }
-  function clearForm(){ ['email','license_key'].forEach(function(id){byId(id).value='';}); byId('plan').value='starter'; byId('status').value='active'; byId('maxDevices').value=1; defaultDate(); }
-  function generateKey(){ function p(){return Math.random().toString(36).slice(2,6).toUpperCase();} byId('license_key').value='RCR-'+p()+'-'+p()+'-'+new Date().getFullYear(); }
-  function escapeHtml(value){ return String(value == null ? '' : value).replace(/[&<>"']/g,function(ch){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]; }); }
-  function renderRows(){
-    var rows = byId('rows');
-    rows.innerHTML = currentLicenses.map(function(l){
-      var key = escapeHtml(l.license_key);
-      var statusClass = l.status === 'active' ? 'active' : 'inactive';
-      var expires = l.expiresAt ? new Date(l.expiresAt).toLocaleDateString() : '';
-      return '<tr><td>'+escapeHtml(l.email)+'</td><td><code>'+key+'</code></td><td>'+escapeHtml(l.plan)+'</td><td><span class="pill '+statusClass+'">'+escapeHtml(l.status)+'</span></td><td>'+escapeHtml(expires)+'</td><td>'+escapeHtml(l.maxDevices)+'</td><td class="actions"><button class="copy editBtn" data-key="'+key+'">Edit</button><button class="warn toggleBtn" data-key="'+key+'">Toggle</button><button class="danger deleteBtn" data-key="'+key+'">Delete</button></td></tr>';
-    }).join('');
-  }
-  async function loadLicenses(){
-    if(!adminPassword){ byId('loginBox').classList.remove('hide'); byId('appBox').classList.add('hide'); return; }
-    try {
-      var res = await fetch('/admin/licenses',{headers:headers()});
-      if(res.status===401){ logout(); showLoginMsg('Wrong password or server not redeployed yet.'); return; }
-      var data = await res.json();
-      if(!data.ok){ showLoginMsg(data.error || 'Login failed'); return; }
-      currentLicenses = data.licenses || [];
-      byId('loginBox').classList.add('hide'); byId('appBox').classList.remove('hide');
-      renderRows();
-    } catch(e) { showLoginMsg('Server error: '+e.message); }
-  }
-  function login(){ adminPassword = byId('password').value.trim(); localStorage.setItem('rcr_admin_password',adminPassword); loadLicenses(); }
-  function logout(){ localStorage.removeItem('rcr_admin_password'); adminPassword=''; byId('appBox').classList.add('hide'); byId('loginBox').classList.remove('hide'); }
-  function editLicenseByKey(key){
-    var l = currentLicenses.find(function(x){return x.license_key === key;}); if(!l) return;
-    byId('email').value=l.email||''; byId('license_key').value=l.license_key||''; byId('plan').value=l.plan||'starter'; byId('status').value=l.status||'active'; byId('expiresAt').value=l.expiresAt ? new Date(l.expiresAt).toISOString().slice(0,10) : ''; byId('maxDevices').value=l.maxDevices||1; window.scrollTo({top:0,behavior:'smooth'});
-  }
-  async function saveLicense(){
-    var body={email:byId('email').value,license_key:byId('license_key').value,plan:byId('plan').value,status:byId('status').value,expiresAt:byId('expiresAt').value,maxDevices:byId('maxDevices').value};
-    var res=await fetch('/admin/licenses',{method:'POST',headers:headers(),body:JSON.stringify(body)}); var data=await res.json();
-    if(!data.ok){showMsg(data.error||'Error',true);return;} showMsg('Saved: '+data.license.license_key); clearForm(); loadLicenses();
-  }
-  async function toggleLicense(key){ await fetch('/admin/licenses/toggle',{method:'POST',headers:headers(),body:JSON.stringify({license_key:key})}); loadLicenses(); }
-  async function deleteLicense(key){ if(!confirm('Delete license '+key+'?')) return; await fetch('/admin/licenses/delete',{method:'POST',headers:headers(),body:JSON.stringify({license_key:key})}); loadLicenses(); }
-  document.addEventListener('click',function(e){
-    if(e.target.id==='loginBtn') login();
-    if(e.target.id==='logoutBtn') logout();
-    if(e.target.id==='refreshBtn') loadLicenses();
-    if(e.target.id==='saveBtn') saveLicense();
-    if(e.target.id==='clearBtn') clearForm();
-    if(e.target.id==='genBtn') generateKey();
-    if(e.target.classList.contains('editBtn')) editLicenseByKey(e.target.dataset.key);
-    if(e.target.classList.contains('toggleBtn')) toggleLicense(e.target.dataset.key);
-    if(e.target.classList.contains('deleteBtn')) deleteLicense(e.target.dataset.key);
-  });
-  byId('password').addEventListener('keydown',function(e){ if(e.key==='Enter') login(); });
-  defaultDate(); loadLicenses();
-})();
-</script>
-</body></html>`);
-});
-
-app.get('/admin/licenses', requireAdmin, (req, res) => {
-  res.json({ ok: true, licenses: loadLicenses() });
-});
-
-app.post('/admin/licenses', requireAdmin, (req, res) => {
+app.post("/validate-license", (req, res) => {
   try {
-    const next = normaliseLicense(req.body);
+    const { key } = req.body;
+
     const licenses = loadLicenses();
-    const index = licenses.findIndex(item => cleanKey(item.license_key) === next.license_key);
-    if (index >= 0) licenses[index] = { ...licenses[index], ...next };
-    else licenses.push(next);
-    saveLicenses(licenses);
-    res.json({ ok: true, license: next });
-  } catch (error) {
-    res.status(400).json({ ok: false, error: error.message });
+
+    const found = licenses.find(
+      (l) =>
+        l.key === key &&
+        l.status === "active"
+    );
+
+    if (!found) {
+      return res.json({
+        valid: false,
+      });
+    }
+
+    const expires = new Date(found.expires);
+    const now = new Date();
+
+    if (expires < now) {
+      return res.json({
+        valid: false,
+        reason: "expired",
+      });
+    }
+
+    res.json({
+      valid: true,
+      license: found,
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      valid: false,
+    });
   }
 });
 
-app.post('/admin/licenses/toggle', requireAdmin, (req, res) => {
-  const key = cleanKey(req.body.license_key);
-  const licenses = loadLicenses();
-  const license = licenses.find(item => cleanKey(item.license_key) === key);
-  if (!license) return res.status(404).json({ ok: false, error: 'not_found' });
-  license.status = license.status === 'active' ? 'inactive' : 'active';
-  saveLicenses(licenses);
-  res.json({ ok: true, license });
+app.post("/create-checkout-session", async (req, res) => {
+  try {
+    const { email, plan } = req.body;
+
+    let amount = 999;
+
+    if (plan === "starter") {
+      amount = 999;
+    }
+
+    if (plan === "pro") {
+      amount = 1999;
+    }
+
+    if (plan === "owner") {
+      amount = 4999;
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+
+      mode: "subscription",
+
+      customer_email: email,
+
+      metadata: {
+        email,
+        plan,
+      },
+
+      line_items: [
+        {
+          price_data: {
+            currency: "gbp",
+
+            product_data: {
+              name: `Relay Contract Refresher ${plan}`,
+            },
+
+            recurring: {
+              interval: "month",
+            },
+
+            unit_amount: amount,
+          },
+
+          quantity: 1,
+        },
+      ],
+
+      success_url:
+        "https://relay-license-server.onrender.com/success",
+
+      cancel_url:
+        "https://relay-license-server.onrender.com/cancel",
+    });
+
+    res.json({
+      url: session.url,
+    });
+  } catch (err) {
+    console.error(err);
+
+    res.status(500).json({
+      error: "checkout_failed",
+    });
+  }
 });
 
-app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
-  const key = cleanKey(req.body.license_key);
-  const licenses = loadLicenses();
-  const next = licenses.filter(item => cleanKey(item.license_key) !== key);
-  saveLicenses(next);
-  res.json({ ok: true, deleted: licenses.length - next.length });
+app.post(
+  "/stripe-webhook",
+  express.raw({ type: "application/json" }),
+  (req, res) => {
+    const sig = req.headers["stripe-signature"];
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.log(err.message);
+
+      return res.sendStatus(400);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+
+      const licenses = loadLicenses();
+
+      const existing = licenses.find(
+        (l) => l.email === session.customer_email
+      );
+
+      if (!existing) {
+        const newLicense = {
+          email: session.customer_email,
+
+          key:
+            "RCR-" +
+            Math.random()
+              .toString(36)
+              .substring(2, 10)
+              .toUpperCase(),
+
+          plan: session.metadata.plan,
+
+          status: "active",
+
+          expires: new Date(
+            Date.now() + 30 * 24 * 60 * 60 * 1000
+          )
+            .toISOString()
+            .split("T")[0],
+
+          maxDevices: 1,
+
+          devices: [],
+        };
+
+        licenses.push(newLicense);
+
+        saveLicenses(licenses);
+
+        console.log(
+          "New license created:",
+          newLicense.key
+        );
+      }
+    }
+
+    res.json({
+      received: true,
+    });
+  }
+);
+
+app.get("/success", (req, res) => {
+  res.send("Payment successful");
 });
+
+app.get("/cancel", (req, res) => {
+  res.send("Payment cancelled");
+});
+
+app.get("/admin/licenses", (req, res) => {
+  const password = req.headers["x-admin-password"];
+
+  if (password !== process.env.ADMIN_PASSWORD) {
+    return res.sendStatus(401);
+  }
+
+  res.json(loadLicenses());
+});
+
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v1.5.0 running on port ${PORT}`);
+  console.log(
+    "Relay License Server running on port",
+    PORT
+  );
 });
