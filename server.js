@@ -6,7 +6,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const LICENSE_FILE = path.join(__dirname, 'licenses.json');
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'CHANGE_ME_RELAY_2026';
+const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'CHANGE_ME_RELAY_2026').trim();
 
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
@@ -41,7 +41,7 @@ function makeLicenseKey() {
 
 function requireAdmin(req, res, next) {
   const provided = req.headers['x-admin-password'] || req.query.password;
-  if (!provided || String(provided) !== ADMIN_PASSWORD) {
+  if (!provided || String(provided).trim() !== ADMIN_PASSWORD) {
     return res.status(401).json({ ok: false, error: 'unauthorised' });
   }
   next();
@@ -74,7 +74,7 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '1.4.1',
+    version: '1.4.2',
     admin: '/admin',
     validate: '/validate-license'
   });
@@ -83,6 +83,16 @@ app.get('/', (req, res) => {
 app.get('/health', (req, res) => {
   res.json({ ok: true, time: new Date().toISOString() });
 });
+
+app.get('/admin/env-check', (req, res) => {
+  res.json({
+    ok: true,
+    version: '1.4.2',
+    adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
+    adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
+  });
+});
+
 
 app.post('/validate-license', (req, res) => {
   const email = clean(req.body.email);
@@ -268,5 +278,5 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v1.4.1 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v1.4.2 running on port ${PORT}`);
 });
