@@ -8,7 +8,14 @@ const app = express();
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 app.use(cors());
-app.use(express.json());
+
+app.use((req, res, next) => {
+  if (req.originalUrl === "/stripe-webhook") {
+    next();
+  } else {
+    express.json()(req, res, next);
+  }
+});
 
 const LICENSE_FILE = "./licenses.json";
 
@@ -28,13 +35,19 @@ app.get("/", (req, res) => {
   res.send("Relay Contract Refresher License Server v1.5");
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    version: "1.5.0"
+  });
+});
+
 app.get("/admin/env-check", (req, res) => {
   res.json({
     ok: true,
-    version: "1.5.0",
     stripeLoaded: !!process.env.STRIPE_SECRET_KEY,
     webhookLoaded: !!process.env.STRIPE_WEBHOOK_SECRET,
-    adminLoaded: !!process.env.ADMIN_PASSWORD,
+    adminLoaded: !!process.env.ADMIN_PASSWORD
   });
 });
 
@@ -45,14 +58,12 @@ app.post("/validate-license", (req, res) => {
     const licenses = loadLicenses();
 
     const found = licenses.find(
-      (l) =>
-        l.key === key &&
-        l.status === "active"
+      (l) => l.key === key && l.status === "active"
     );
 
     if (!found) {
       return res.json({
-        valid: false,
+        valid: false
       });
     }
 
@@ -62,19 +73,19 @@ app.post("/validate-license", (req, res) => {
     if (expires < now) {
       return res.json({
         valid: false,
-        reason: "expired",
+        reason: "expired"
       });
     }
 
     res.json({
       valid: true,
-      license: found,
+      license: found
     });
   } catch (err) {
-    console.error(err);
+    console.log(err);
 
     res.status(500).json({
-      valid: false,
+      valid: false
     });
   }
 });
@@ -85,65 +96,51 @@ app.post("/create-checkout-session", async (req, res) => {
 
     let amount = 999;
 
-    if (plan === "starter") {
-      amount = 999;
-    }
-
-    if (plan === "pro") {
-      amount = 1999;
-    }
-
-    if (plan === "owner") {
-      amount = 4999;
-    }
+    if (plan === "starter") amount = 999;
+    if (plan === "pro") amount = 1999;
+    if (plan === "owner") amount = 4999;
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
-
       mode: "subscription",
-
       customer_email: email,
 
       metadata: {
         email,
-        plan,
+        plan
       },
 
       line_items: [
         {
           price_data: {
             currency: "gbp",
-
             product_data: {
-              name: `Relay Contract Refresher ${plan}`,
+              name: `Relay Contract Refresher ${plan}`
             },
-
             recurring: {
-              interval: "month",
+              interval: "month"
             },
-
-            unit_amount: amount,
+            unit_amount: amount
           },
-
-          quantity: 1,
-        },
+          quantity: 1
+        }
       ],
 
       success_url:
         "https://relay-license-server.onrender.com/success",
 
       cancel_url:
-        "https://relay-license-server.onrender.com/cancel",
+        "https://relay-license-server.onrender.com/cancel"
     });
 
     res.json({
-      url: session.url,
+      url: session.url
     });
   } catch (err) {
-    console.error(err);
+    console.log(err);
 
     res.status(500).json({
-      error: "checkout_failed",
+      error: "checkout_failed"
     });
   }
 });
@@ -164,7 +161,6 @@ app.post(
       );
     } catch (err) {
       console.log(err.message);
-
       return res.sendStatus(400);
     }
 
@@ -173,11 +169,11 @@ app.post(
 
       const licenses = loadLicenses();
 
-      const existing = licenses.find(
+      const exists = licenses.find(
         (l) => l.email === session.customer_email
       );
 
-      if (!existing) {
+      if (!exists) {
         const newLicense = {
           email: session.customer_email,
 
@@ -200,22 +196,19 @@ app.post(
 
           maxDevices: 1,
 
-          devices: [],
+          devices: []
         };
 
         licenses.push(newLicense);
 
         saveLicenses(licenses);
 
-        console.log(
-          "New license created:",
-          newLicense.key
-        );
+        console.log("New license created:", newLicense.key);
       }
     }
 
     res.json({
-      received: true,
+      received: true
     });
   }
 );
@@ -228,21 +221,12 @@ app.get("/cancel", (req, res) => {
   res.send("Payment cancelled");
 });
 
-app.get("/admin/licenses", (req, res) => {
-  const password = req.headers["x-admin-password"];
-
-  if (password !== process.env.ADMIN_PASSWORD) {
-    return res.sendStatus(401);
-  }
-
-  res.json(loadLicenses());
+app.get("/admin", (req, res) => {
+  res.send("Relay Admin Panel Online");
 });
 
 const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-  console.log(
-    "Relay License Server running on port",
-    PORT
-  );
+  console.log("Relay License Server running on port", PORT);
 });

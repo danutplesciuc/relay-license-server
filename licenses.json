@@ -1,20 +1,11 @@
 [
   {
     "email": "plesciucdanut@gmail.com",
-    "license_key": "RCR-DAN-2026",
-    "product": "relay-contract-refresher",
-    "status": "active",
+    "key": "RCR-DAN-2026",
     "plan": "owner",
-    "expiresAt": "2026-12-31T23:59:59.000Z",
-    "maxDevices": 3
-  },
-  {
-    "email": "demo@relaytools.co.uk",
-    "license_key": "RCR-DEMO-2026",
-    "product": "relay-contract-refresher",
     "status": "active",
-    "plan": "demo",
-    "expiresAt": "2026-06-13T23:59:59.000Z",
-    "maxDevices": 1
+    "expires": "2027-12-31",
+    "maxDevices": 5,
+    "devices": []
   }
 ]
