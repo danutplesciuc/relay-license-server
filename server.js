@@ -87,6 +87,28 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
     }
   }
 
+
+  if (event.type === 'customer.subscription.deleted') {
+    disableLicenseFromStripe(event.data.object);
+  }
+
+  if (event.type === 'invoice.payment_failed') {
+    disableLicenseFromStripe(event.data.object);
+  }
+
+  if (event.type === 'customer.subscription.updated') {
+    const subscription = event.data.object;
+
+    if (
+      subscription.status === 'canceled' ||
+      subscription.status === 'unpaid' ||
+      subscription.status === 'incomplete_expired'
+    ) {
+      disableLicenseFromStripe(subscription);
+    }
+  }
+
+
   res.json({ received: true });
 });
 
@@ -131,12 +153,85 @@ function saveLicenses(licenses) {
   fs.writeFileSync(LICENSE_FILE, JSON.stringify(licenses, null, 2));
 }
 
+function findLicenseByStripe(licenses, customerId, subscriptionId) {
+  return licenses.find(item =>
+    (customerId && item.stripeCustomerId === customerId) ||
+    (subscriptionId && item.stripeSubscriptionId === subscriptionId)
+  );
+}
+
+function activateLicenseFromStripe(session) {
+  const licenses = loadLicenses();
+
+  const email = String(
+    session.customer_email ||
+    session.customer_details?.email ||
+    session.metadata?.email ||
+    ''
+  ).trim().toLowerCase();
+
+  if (!email) {
+    console.log('Stripe session has no email.');
+    return null;
+  }
+
+  let license = licenses.find(item =>
+    String(item.email || '').trim().toLowerCase() === email
+  );
+
+  if (!license) {
+    license = {
+      email,
+      license_key: makeLicenseKey(),
+      product: 'relay-contract-refresher',
+      status: 'active',
+      plan: 'pro',
+      expiresAt: new Date(Date.now() + 365 * 86400000).toISOString(),
+      maxDevices: 1,
+      devices: [],
+      stripeCustomerId: session.customer || '',
+      stripeSubscriptionId: session.subscription || ''
+    };
+
+    licenses.push(license);
+    console.log('License created for', email);
+  } else {
+    license.status = 'active';
+    license.plan = 'pro';
+    license.stripeCustomerId = session.customer || license.stripeCustomerId || '';
+    license.stripeSubscriptionId = session.subscription || license.stripeSubscriptionId || '';
+    console.log('License reactivated for', email);
+  }
+
+  saveLicenses(licenses);
+  return license;
+}
+
+function disableLicenseFromStripe(obj) {
+  const licenses = loadLicenses();
+  const customerId = obj.customer || '';
+  const subscriptionId = obj.subscription || obj.id || '';
+
+  const license = findLicenseByStripe(licenses, customerId, subscriptionId);
+
+  if (license) {
+    license.status = 'inactive';
+    saveLicenses(licenses);
+    console.log('License disabled for', license.email);
+    return license;
+  }
+
+  console.log('No license found for Stripe customer/subscription.');
+  return null;
+}
+
+
 function loadVersionInfo() {
   try {
     const raw = fs.readFileSync(VERSION_FILE, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
-    return { version: '2.3.0', downloadUrl: '', notes: 'Version file not found.' };
+    return { version: '3.1.0', downloadUrl: '', notes: 'Version file not found.' };
   }
 }
 
@@ -189,7 +284,7 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '2.3.0',
+    version: '3.1.0',
     admin: '/admin',
     validate: '/validate-license',
     versionCheck: '/version',
@@ -200,7 +295,7 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString(), version: '2.3.0', datastore: LICENSE_FILE });
+  res.json({ ok: true, time: new Date().toISOString(), version: '3.1.0', datastore: LICENSE_FILE });
 });
 
 app.get('/version', (req, res) => {
@@ -208,7 +303,7 @@ app.get('/version', (req, res) => {
   res.json({
     ok: true,
     product: 'relay-contract-refresher',
-    version: info.version || '2.3.0',
+    version: info.version || '3.1.0',
     downloadUrl: info.downloadUrl || info.download || '',
     notes: info.notes || ''
   });
@@ -217,7 +312,7 @@ app.get('/version', (req, res) => {
 app.get('/admin/env-check', (req, res) => {
   res.json({
     ok: true,
-    version: '2.3.0',
+    version: '3.1.0',
     adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
     adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
   });
@@ -482,11 +577,60 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
   saveLicenses(next);
   res.json({ ok: true, deleted: licenses.length - next.length });
 });
+
+
+app.post('/create-customer-portal-session', async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim().toLowerCase();
+
+    if (!email) {
+      return res.status(400).json({
+        ok: false,
+        error: 'email_required'
+      });
+    }
+
+    const licenses = loadLicenses();
+
+    const license = licenses.find(item =>
+      String(item.email || '').trim().toLowerCase() === email &&
+      String(item.status || '').toLowerCase() === 'active'
+    );
+
+    if (!license || !license.stripeCustomerId) {
+      return res.status(404).json({
+        ok: false,
+        error: 'active_subscription_not_found'
+      });
+    }
+
+    const session = await stripe.billingPortal.sessions.create({
+      customer: license.stripeCustomerId,
+      return_url: process.env.APP_URL || 'https://relaytools.co.uk'
+    });
+
+    return res.json({
+      ok: true,
+      url: session.url
+    });
+
+  } catch (error) {
+    console.error('Customer portal failed:', error.message);
+
+    return res.status(500).json({
+      ok: false,
+      error: 'portal_failed'
+    });
+  }
+});
+
+
+
 app.post('/get-license-by-email', (req, res) => {
   try {
     const secret = String(req.headers['x-rcr-secret'] || '');
 
-    if (secret !== process.env.RCR_API_SECRET) {
+    if (process.env.RCR_API_SECRET && secret !== process.env.RCR_API_SECRET) {
       return res.status(403).json({
         ok: false,
         error: 'forbidden'
@@ -513,7 +657,9 @@ app.post('/get-license-by-email', (req, res) => {
       ok: true,
       licenseKey: found.license_key || '',
       plan: found.plan || 'pro',
-      expires: found.expiresAt || found.expires || ''
+      expires: found.expiresAt || found.expires || '',
+      maxDevices: found.maxDevices || 1,
+      usedDevices: Array.isArray(found.devices) ? found.devices.length : 0
     });
 
   } catch (error) {
@@ -524,6 +670,48 @@ app.post('/get-license-by-email', (req, res) => {
   }
 });
 
+
+
+app.get('/manage-subscription', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<title>Manage Subscription | RelayTools</title>
+<style>
+body{background:#050816;color:white;font-family:Arial;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+.box{background:#0f172a;border:1px solid #1e293b;border-radius:20px;padding:32px;width:420px}
+input,button{width:100%;padding:14px;border-radius:10px;border:none;margin-top:12px;box-sizing:border-box}
+input{background:#111827;color:white}
+button{background:#0ea5e9;color:white;font-weight:bold;cursor:pointer}
+#msg{margin-top:15px;color:#93c5fd}
+</style>
+</head>
+<body>
+<div class="box">
+<h1>Manage Subscription</h1>
+<p>Enter your license email to manage or cancel your subscription securely through Stripe.</p>
+<input id="email" placeholder="Email">
+<button onclick="openPortal()">Open Stripe Portal</button>
+<div id="msg"></div>
+</div>
+<script>
+async function openPortal(){
+  const email=document.getElementById('email').value.trim().toLowerCase();
+  const msg=document.getElementById('msg');
+  msg.textContent='Opening portal...';
+  try{
+    const r=await fetch('/create-customer-portal-session',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email})});
+    const d=await r.json();
+    if(d.ok && d.url){ location.href=d.url; return; }
+    msg.textContent=d.error || 'Could not open portal.';
+  }catch(e){ msg.textContent='Server error.'; }
+}
+</script>
+</body>
+</html>`);
+});
+
+
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v2.3.0 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v3.1.0 running on port ${PORT}`);
 });

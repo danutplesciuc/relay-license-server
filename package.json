@@ -1,7 +1,7 @@
 {
   "name": "relay-contract-refresher-license-server",
-  "version": "2.3.0",
-  "description": "Relay Contract Refresher license server with persistent disk storage, admin panel, Stripe checkout and device lock.",
+  "version": "3.1.0",
+  "description": "RelayTools license server with Stripe billing portal, auto cancel sync and persistent storage.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
