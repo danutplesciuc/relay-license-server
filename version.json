@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "downloadUrl": "https://github.com/danutplesciuc/relay-license-server/releases",
-  "notes": "V2 clean build. Synced extension and license server version."
+  "notes": "V2.1 adds real device lock. Each license can be limited by max devices."
 }

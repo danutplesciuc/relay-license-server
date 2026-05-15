@@ -32,7 +32,7 @@ function loadVersionInfo() {
     const raw = fs.readFileSync(VERSION_FILE, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
-    return { version: '2.0.0', downloadUrl: '', notes: 'Version file not found.' };
+    return { version: '2.1.0', downloadUrl: '', notes: 'Version file not found.' };
   }
 }
 
@@ -76,7 +76,8 @@ function normaliseLicense(input) {
     status,
     plan,
     expiresAt: new Date(expiresAt).toISOString(),
-    maxDevices: Math.max(1, maxDevices)
+    maxDevices: Math.max(1, maxDevices),
+    devices: Array.isArray(input.devices) ? input.devices : []
   };
 }
 
@@ -84,7 +85,7 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '2.0.0',
+    version: '2.1.0',
     admin: '/admin',
     validate: '/validate-license',
     versionCheck: '/version'
@@ -100,7 +101,7 @@ app.get('/version', (req, res) => {
   res.json({
     ok: true,
     product: 'relay-contract-refresher',
-    version: info.version || '2.0.0',
+    version: info.version || '2.1.0',
     downloadUrl: info.downloadUrl || info.download || '',
     notes: info.notes || ''
   });
@@ -109,7 +110,7 @@ app.get('/version', (req, res) => {
 app.get('/admin/env-check', (req, res) => {
   res.json({
     ok: true,
-    version: '2.0.0',
+    version: '2.1.0',
     adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
     adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
   });
@@ -120,6 +121,7 @@ app.post('/validate-license', (req, res) => {
   const email = clean(req.body.email);
   const licenseKey = cleanKey(req.body.license_key);
   const product = clean(req.body.product || 'relay-contract-refresher');
+  const deviceId = String(req.body.deviceId || req.body.device_id || '').trim();
 
   if (!email || !licenseKey) {
     return res.json({ ok: true, active: false, reason: 'missing_email_or_license' });
@@ -145,12 +147,37 @@ app.post('/validate-license', (req, res) => {
     return res.json({ ok: true, active: false, reason: 'expired', expiresAt: license.expiresAt });
   }
 
+
+  license.devices = Array.isArray(license.devices) ? license.devices : [];
+
+  if (deviceId) {
+    const deviceExists = license.devices.includes(deviceId);
+
+    if (!deviceExists) {
+      const limit = Number(license.maxDevices || 1);
+
+      if (license.devices.length >= limit) {
+        return res.json({
+          ok: true,
+          active: false,
+          reason: 'device_limit_reached',
+          maxDevices: limit,
+          usedDevices: license.devices.length
+        });
+      }
+
+      license.devices.push(deviceId);
+      saveLicenses(licenses);
+    }
+  }
+
   return res.json({
     ok: true,
     active: true,
     expiresAt: license.expiresAt,
     plan: license.plan || 'standard',
-    maxDevices: license.maxDevices || 1
+    maxDevices: license.maxDevices || 1,
+    usedDevices: license.devices ? license.devices.length : 0
   });
 });
 
@@ -217,7 +244,7 @@ app.get('/admin', (req, res) => {
       var key = escapeHtml(l.license_key);
       var statusClass = l.status === 'active' ? 'active' : 'inactive';
       var expires = l.expiresAt ? new Date(l.expiresAt).toLocaleDateString() : '';
-      return '<tr><td>'+escapeHtml(l.email)+'</td><td><code>'+key+'</code></td><td>'+escapeHtml(l.plan)+'</td><td><span class="pill '+statusClass+'">'+escapeHtml(l.status)+'</span></td><td>'+escapeHtml(expires)+'</td><td>'+escapeHtml(l.maxDevices)+'</td><td class="actions"><button class="copy editBtn" data-key="'+key+'">Edit</button><button class="warn toggleBtn" data-key="'+key+'">Toggle</button><button class="danger deleteBtn" data-key="'+key+'">Delete</button></td></tr>';
+      return '<tr><td>'+escapeHtml(l.email)+'</td><td><code>'+key+'</code></td><td>'+escapeHtml(l.plan)+'</td><td><span class="pill '+statusClass+'">'+escapeHtml(l.status)+'</span></td><td>'+escapeHtml(expires)+'</td><td>'+escapeHtml((l.devices ? l.devices.length : 0) + '/' + (l.maxDevices || 1))+'</td><td class="actions"><button class="copy editBtn" data-key="'+key+'">Edit</button><button class="warn toggleBtn" data-key="'+key+'">Toggle</button><button class="danger deleteBtn" data-key="'+key+'">Delete</button></td></tr>';
     }).join('');
   }
   async function loadLicenses(){
@@ -300,5 +327,5 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v2.0.0 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v2.1.0 running on port ${PORT}`);
 });
