@@ -482,6 +482,47 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
   saveLicenses(next);
   res.json({ ok: true, deleted: licenses.length - next.length });
 });
+app.post('/get-license-by-email', (req, res) => {
+  try {
+    const secret = String(req.headers['x-rcr-secret'] || '');
+
+    if (secret !== process.env.RCR_API_SECRET) {
+      return res.status(403).json({
+        ok: false,
+        error: 'forbidden'
+      });
+    }
+
+    const email = String(req.body.email || '').trim().toLowerCase();
+
+    const licenses = loadLicenses();
+
+    const found = licenses.find(item =>
+      String(item.email || '').trim().toLowerCase() === email &&
+      String(item.status || '').toLowerCase() === 'active'
+    );
+
+    if (!found) {
+      return res.json({
+        ok: false,
+        error: 'license_not_found'
+      });
+    }
+
+    return res.json({
+      ok: true,
+      licenseKey: found.license_key || '',
+      plan: found.plan || 'pro',
+      expires: found.expiresAt || found.expires || ''
+    });
+
+  } catch (error) {
+    return res.status(500).json({
+      ok: false,
+      error: 'server_error'
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Relay Contract Refresher license server v2.3.0 running on port ${PORT}`);
