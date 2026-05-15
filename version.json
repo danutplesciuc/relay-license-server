@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "2.0.0",
   "downloadUrl": "https://github.com/danutplesciuc/relay-license-server/releases",
-  "notes": "v1.5 adds update checking from the Relay Tools license server."
+  "notes": "V2 clean build. Synced extension and license server version."
 }

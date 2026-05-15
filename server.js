@@ -32,7 +32,7 @@ function loadVersionInfo() {
     const raw = fs.readFileSync(VERSION_FILE, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
-    return { version: '1.5.0', downloadUrl: '', notes: 'Version file not found.' };
+    return { version: '2.0.0', downloadUrl: '', notes: 'Version file not found.' };
   }
 }
 
@@ -84,7 +84,7 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '1.5.0',
+    version: '2.0.0',
     admin: '/admin',
     validate: '/validate-license',
     versionCheck: '/version'
@@ -100,7 +100,7 @@ app.get('/version', (req, res) => {
   res.json({
     ok: true,
     product: 'relay-contract-refresher',
-    version: info.version || '1.5.0',
+    version: info.version || '2.0.0',
     downloadUrl: info.downloadUrl || info.download || '',
     notes: info.notes || ''
   });
@@ -109,7 +109,7 @@ app.get('/version', (req, res) => {
 app.get('/admin/env-check', (req, res) => {
   res.json({
     ok: true,
-    version: '1.5.0',
+    version: '2.0.0',
     adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
     adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
   });
@@ -300,5 +300,5 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v1.5.0 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v2.0.0 running on port ${PORT}`);
 });
