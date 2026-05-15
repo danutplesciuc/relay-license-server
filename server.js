@@ -6,7 +6,9 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const LICENSE_FILE = path.join(__dirname, 'licenses.json');
+const DATA_DIR = process.env.DATA_DIR || '/var/data';
+const LOCAL_LICENSE_SEED_FILE = path.join(__dirname, 'licenses.json');
+const LICENSE_FILE = path.join(DATA_DIR, 'licenses.json');
 const VERSION_FILE = path.join(__dirname, 'version.json');
 const ADMIN_PASSWORD = String(process.env.ADMIN_PASSWORD || 'CHANGE_ME_RELAY_2026').trim();
 
@@ -91,18 +93,41 @@ app.post('/stripe/webhook', express.raw({ type: 'application/json' }), async (re
 app.use(express.json({ limit: '1mb' }));
 
 
+function ensureDataStore() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+
+    if (!fs.existsSync(LICENSE_FILE)) {
+      if (fs.existsSync(LOCAL_LICENSE_SEED_FILE)) {
+        fs.copyFileSync(LOCAL_LICENSE_SEED_FILE, LICENSE_FILE);
+        console.log('Persistent licenses.json created from seed file.');
+      } else {
+        fs.writeFileSync(LICENSE_FILE, '[]');
+        console.log('Persistent licenses.json created empty.');
+      }
+    }
+  } catch (error) {
+    console.error('Could not initialise persistent storage:', error.message);
+  }
+}
+
 function loadLicenses() {
+  ensureDataStore();
+
   try {
     const raw = fs.readFileSync(LICENSE_FILE, 'utf8');
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
-    console.error('Could not read licenses.json:', error.message);
+    console.error('Could not read persistent licenses.json:', error.message);
     return [];
   }
 }
 
 function saveLicenses(licenses) {
+  ensureDataStore();
   fs.writeFileSync(LICENSE_FILE, JSON.stringify(licenses, null, 2));
 }
 
@@ -111,7 +136,7 @@ function loadVersionInfo() {
     const raw = fs.readFileSync(VERSION_FILE, 'utf8');
     return JSON.parse(raw);
   } catch (error) {
-    return { version: '2.2.1', downloadUrl: '', notes: 'Version file not found.' };
+    return { version: '2.3.0', downloadUrl: '', notes: 'Version file not found.' };
   }
 }
 
@@ -164,17 +189,18 @@ app.get('/', (req, res) => {
   res.json({
     ok: true,
     product: 'Relay Contract Refresher License Server',
-    version: '2.2.1',
+    version: '2.3.0',
     admin: '/admin',
     validate: '/validate-license',
     versionCheck: '/version',
     checkout: '/create-checkout-session',
-    webhook: '/stripe/webhook'
+    webhook: '/stripe/webhook',
+    datastore: LICENSE_FILE
   });
 });
 
 app.get('/health', (req, res) => {
-  res.json({ ok: true, time: new Date().toISOString() });
+  res.json({ ok: true, time: new Date().toISOString(), version: '2.3.0', datastore: LICENSE_FILE });
 });
 
 app.get('/version', (req, res) => {
@@ -182,7 +208,7 @@ app.get('/version', (req, res) => {
   res.json({
     ok: true,
     product: 'relay-contract-refresher',
-    version: info.version || '2.2.1',
+    version: info.version || '2.3.0',
     downloadUrl: info.downloadUrl || info.download || '',
     notes: info.notes || ''
   });
@@ -191,7 +217,7 @@ app.get('/version', (req, res) => {
 app.get('/admin/env-check', (req, res) => {
   res.json({
     ok: true,
-    version: '2.2.1',
+    version: '2.3.0',
     adminPasswordLoaded: Boolean(ADMIN_PASSWORD && ADMIN_PASSWORD !== 'CHANGE_ME_RELAY_2026'),
     adminPasswordLength: ADMIN_PASSWORD ? ADMIN_PASSWORD.length : 0
   });
@@ -458,5 +484,5 @@ app.post('/admin/licenses/delete', requireAdmin, (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Relay Contract Refresher license server v2.2.1 running on port ${PORT}`);
+  console.log(`Relay Contract Refresher license server v2.3.0 running on port ${PORT}`);
 });

@@ -1,7 +1,7 @@
 {
   "name": "relay-contract-refresher-license-server",
-  "version": "2.2.1",
-  "description": "License API, admin panel, device lock and Stripe checkout for Relay Contract Refresher",
+  "version": "2.3.0",
+  "description": "Relay Contract Refresher license server with persistent disk storage, admin panel, Stripe checkout and device lock.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

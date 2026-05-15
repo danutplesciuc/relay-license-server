@@ -1,5 +1,5 @@
 {
-  "version": "2.2.1",
+  "version": "2.3.0",
   "downloadUrl": "https://github.com/danutplesciuc/relay-license-server/releases",
-  "notes": "V2.2.1 restores admin panel and adds Stripe checkout with 7 day trial."
+  "notes": "V2.3 adds persistent disk storage so Stripe-created licenses are not lost after deploy."
 }
