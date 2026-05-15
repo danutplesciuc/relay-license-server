@@ -1,14 +1,13 @@
 {
-  "name": "relay-contract-refresher-license-server",
-  "version": "2.1.0",
-  "description": "License API, admin panel, update checker and device lock for Relay Contract Refresher V2.1",
+  "name": "relay-license-server",
+  "version": "2.2.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node server.js"
+    "start": "node server.js"
   },
   "dependencies": {
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.21.2",
+    "stripe": "^18.0.0"
   }
 }
