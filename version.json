@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.1",
   "downloadUrl": "https://github.com/danutplesciuc/relay-license-server/releases",
-  "notes": "V2.1 adds real device lock. Each license can be limited by max devices."
+  "notes": "V2.2.1 restores admin panel and adds Stripe checkout with 7 day trial."
 }

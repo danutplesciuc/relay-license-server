@@ -6,8 +6,7 @@
     "status": "active",
     "plan": "owner",
     "expiresAt": "2026-12-31T23:59:59.000Z",
-    "maxDevices": 3,
-    "devices": []
+    "maxDevices": 3
   },
   {
     "email": "demo@relaytools.co.uk",
@@ -16,7 +15,6 @@
     "status": "active",
     "plan": "demo",
     "expiresAt": "2026-06-13T23:59:59.000Z",
-    "maxDevices": 1,
-    "devices": []
+    "maxDevices": 1
   }
 ]
